@@ -1,16 +1,22 @@
 package server
 
 import (
-	"context"
 	"crypto/tls"
-	"github.com/grpc-ecosystem/grpc-gateway/runtime"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials"
-	"grpc-hello-world/pkg/util"
-	pb "grpc-hello-world/proto"
 	"log"
 	"net"
 	"net/http"
+	"path"
+	"strings"
+
+	"github.com/elazarl/go-bindata-assetfs"
+	"github.com/grpc-ecosystem/grpc-gateway/runtime"
+	"golang.org/x/net/context"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
+
+	"grpc-hello-world/pkg/ui/data/swagger"
+	"grpc-hello-world/pkg/util"
+	pb "grpc-hello-world/proto"
 )
 
 var (
@@ -19,7 +25,7 @@ var (
 	CertPemPath    string
 	CertKeyPath    string
 	EndPoint       string
-
+	SwaggerDir 	   string
 	tlsConfig *tls.Config
 )
 
@@ -52,6 +58,8 @@ func newServer(conn net.Listener) *http.Server {
 
 	mux := http.NewServeMux()
 	mux.Handle("/", gwmux)
+	mux.HandleFunc("/swagger/", serveSwaggerFile)
+	serveSwaggerUI(mux)
 
 	return &http.Server{
 		Addr:      EndPoint,
@@ -69,7 +77,6 @@ func newGrpc() *grpc.Server {
 	opts := []grpc.ServerOption{
 		grpc.Creds(creds),
 	}
-
 	server := grpc.NewServer(opts...)
 
 	pb.RegisterHelloWorldServer(server, NewHelloService())
@@ -91,4 +98,29 @@ func newGateway() (http.Handler, error) {
 	}
 
 	return gwmux, nil
+}
+
+func serveSwaggerFile(w http.ResponseWriter, r *http.Request) {
+	if ! strings.HasSuffix(r.URL.Path, "swagger.json") {
+		log.Printf("Not Found: %s", r.URL.Path)
+		http.NotFound(w, r)
+		return
+	}
+
+	p := strings.TrimPrefix(r.URL.Path, "/swagger/")
+	p = path.Join(SwaggerDir, p)
+
+	log.Printf("Serving swagger-file: %s", p)
+
+	http.ServeFile(w, r, p)
+}
+
+func serveSwaggerUI(mux *http.ServeMux) {
+	fileServer := http.FileServer(&assetfs.AssetFS{
+		Asset:    swagger.Asset,
+		AssetDir: swagger.AssetDir,
+		Prefix:   "third_party/swagger-ui",
+	})
+	prefix := "/swagger-ui/"
+	mux.Handle(prefix, http.StripPrefix(prefix, fileServer))
 }
